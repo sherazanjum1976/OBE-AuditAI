@@ -19,6 +19,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import List, Optional
+import re
+import time
 import requests
 
 
@@ -145,42 +147,88 @@ def list_models_for_provider(provider: str, api_key: str) -> List[ModelInfo]:
 # --------------------------------------------------------------------------- #
 # Chat completion calls
 # --------------------------------------------------------------------------- #
+def _parse_retry_after_seconds(resp: "requests.Response", attempt: int) -> float:
+    """Figure out how long to wait before retrying a Groq 429.
+
+    Prefers the standard Retry-After header. Groq's free tier doesn't
+    always send one, so we fall back to parsing the "try again in Xs"
+    wording Groq puts in the error message body, and finally to a plain
+    exponential backoff if neither is present.
+    """
+    header_val = resp.headers.get("retry-after") or resp.headers.get("Retry-After")
+    if header_val:
+        try:
+            return max(float(header_val), 0.5)
+        except ValueError:
+            pass
+    try:
+        msg = resp.json().get("error", {}).get("message", "")
+        match = re.search(r"try again in ([\d.]+)s", msg, re.IGNORECASE)
+        if match:
+            return max(float(match.group(1)), 0.5)
+    except Exception:
+        pass
+    return min(2.0 * (2 ** attempt), 20.0)  # 2s, 4s, 8s, ... capped at 20s
+
+
 def _call_groq(api_key: str, model: str, system_prompt: str, user_prompt: str,
-                temperature: float = 0.2, max_tokens: int = 2000) -> str:
-    try:
-        resp = requests.post(
-            "https://api.groq.com/openai/v1/chat/completions",
-            headers={
-                "Authorization": f"Bearer {api_key}",
-                "Content-Type": "application/json",
-            },
-            json={
-                "model": model,
-                "messages": [
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": user_prompt},
-                ],
-                "temperature": temperature,
-                "max_tokens": max_tokens,
-            },
-            timeout=60,
-        )
-    except requests.exceptions.RequestException as e:
-        raise LLMError(f"Network error while contacting Groq: {e}")
+                temperature: float = 0.2, max_tokens: int = 2000,
+                max_retries: int = 4) -> str:
+    last_wait = 0.0
+    for attempt in range(max_retries + 1):
+        try:
+            resp = requests.post(
+                "https://api.groq.com/openai/v1/chat/completions",
+                headers={
+                    "Authorization": f"Bearer {api_key}",
+                    "Content-Type": "application/json",
+                },
+                json={
+                    "model": model,
+                    "messages": [
+                        {"role": "system", "content": system_prompt},
+                        {"role": "user", "content": user_prompt},
+                    ],
+                    "temperature": temperature,
+                    "max_tokens": max_tokens,
+                },
+                timeout=60,
+            )
+        except requests.exceptions.RequestException as e:
+            raise LLMError(f"Network error while contacting Groq: {e}")
 
-    if resp.status_code == 401:
-        raise LLMError("Invalid Groq API key. Please check and re-enter your key.")
-    if resp.status_code == 404:
-        raise LLMError(f"The selected model '{model}' is not available on Groq. Please pick another model.")
-    if resp.status_code == 429:
-        raise LLMError("Groq rate limit or quota exceeded. Please wait a moment and try again, or switch models.")
-    if resp.status_code >= 400:
-        raise LLMError(f"Groq API error ({resp.status_code}): {resp.text[:300]}")
+        if resp.status_code == 401:
+            raise LLMError("Invalid Groq API key. Please check and re-enter your key.")
+        if resp.status_code == 404:
+            raise LLMError(f"The selected model '{model}' is not available on Groq. Please pick another model.")
 
-    try:
-        return resp.json()["choices"][0]["message"]["content"]
-    except (KeyError, IndexError, ValueError):
-        raise LLMError("Unexpected response format from Groq API.")
+        if resp.status_code == 429:
+            # Distinguish a per-minute rate limit (worth retrying — it will
+            # clear itself in seconds) from a hard daily/monthly quota
+            # exhaustion (retrying won't help, so fail fast with a clear
+            # message instead of stalling the whole audit for ~40s).
+            body_text = resp.text[:500].lower()
+            is_hard_quota = "per day" in body_text or "monthly" in body_text or "insufficient_quota" in body_text
+            if is_hard_quota or attempt == max_retries:
+                waited_note = f" (already waited ~{last_wait:.0f}s across retries)" if last_wait else ""
+                raise LLMError(
+                    "Groq rate limit or quota exceeded. Please wait a moment and try again, "
+                    f"or switch models.{waited_note}"
+                )
+            wait_s = _parse_retry_after_seconds(resp, attempt)
+            last_wait += wait_s
+            time.sleep(wait_s)
+            continue
+
+        if resp.status_code >= 400:
+            raise LLMError(f"Groq API error ({resp.status_code}): {resp.text[:300]}")
+
+        try:
+            return resp.json()["choices"][0]["message"]["content"]
+        except (KeyError, IndexError, ValueError):
+            raise LLMError("Unexpected response format from Groq API.")
+
+    raise LLMError("Groq rate limit or quota exceeded. Please wait a moment and try again, or switch models.")
 
 
 def _call_gemini(api_key: str, model: str, system_prompt: str, user_prompt: str,
