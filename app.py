@@ -281,25 +281,36 @@ if run_disabled:
 run_clicked = st.button("🚀 Run OBE Audit", disabled=run_disabled)
 
 def run_full_audit(provider: str, api_key: str, model: str, store):
+    # Groq's free-tier keys enforce a per-minute request/token budget. This
+    # audit makes 8 back-to-back LLM calls, so we space them out a little
+    # even when each individual call succeeds — this avoids tripping the
+    # per-minute cap partway through the run. llm_provider's own retry/
+    # backoff logic still handles any 429 that slips through on top of this.
+    INTER_STAGE_DELAY_S = 3 if provider == "Groq" else 0
+
     results = {}
     prog = st.progress(0, text="Stage 1/7 — Analyzing document overview...")
     try:
         stage1, ev1 = obe_analyzer.stage1_document_overview(provider, api_key, model, store)
         results["stage1"], results["evidence1"] = stage1, ev1
         prog.progress(14, text="Stage 2/7 — Auditing CLOs...")
+        time.sleep(INTER_STAGE_DELAY_S)
 
         stage2, ev2 = obe_analyzer.stage2_clo_audit(provider, api_key, model, store)
         results["stage2"], results["evidence2"] = stage2, ev2
         clo_ids = [c.get("clo_id") for c in stage2.get("clos", []) if c.get("clo_id")]
         prog.progress(28, text="Stage 3/7 — Analyzing CLO–PLO alignment...")
+        time.sleep(INTER_STAGE_DELAY_S)
 
         stage3, ev3 = obe_analyzer.stage3_clo_plo_alignment(provider, api_key, model, store, clo_ids)
         results["stage3"], results["evidence3"] = stage3, ev3
         prog.progress(42, text="Stage 4/7 — Analyzing assessment alignment...")
+        time.sleep(INTER_STAGE_DELAY_S)
 
         stage4, ev4 = obe_analyzer.stage4_assessment_alignment(provider, api_key, model, store, clo_ids)
         results["stage4"], results["evidence4"] = stage4, ev4
         prog.progress(56, text="Stage 5/7 — Analyzing Bloom's Taxonomy distribution...")
+        time.sleep(INTER_STAGE_DELAY_S)
 
         bloom_hint = [{"clo_id": c.get("clo_id"), "bloom_level": c.get("bloom_level")} for c in stage2.get("clos", [])]
         stage5, ev5 = obe_analyzer.stage5_bloom_analysis(provider, api_key, model, store, bloom_hint)
@@ -309,14 +320,17 @@ def run_full_audit(provider: str, api_key: str, model: str, store):
         score_result = scoring.compute_overall_score(stage1, stage2, stage3, stage4, stage5)
         results["score_result"] = score_result
         prog.progress(78, text="Stage 6/7 — Detecting gaps...")
+        time.sleep(INTER_STAGE_DELAY_S)
 
         gaps, ev_gaps = obe_analyzer.detect_gaps(provider, api_key, model, store, stage1, stage2, stage3, stage4, stage5)
         results["gaps"], results["evidence_gaps"] = gaps, ev_gaps
         prog.progress(88, text="Stage 7/7 — Generating recommendations...")
+        time.sleep(INTER_STAGE_DELAY_S)
 
         recommendations, ev_rec = obe_analyzer.generate_recommendations(provider, api_key, model, store, gaps)
         results["recommendations"], results["evidence_rec"] = recommendations, ev_rec
         prog.progress(96, text="Writing executive summary...")
+        time.sleep(INTER_STAGE_DELAY_S)
 
         exec_summary = obe_analyzer.generate_executive_summary(provider, api_key, model, stage1, score_result, gaps)
         results["exec_summary"] = exec_summary
