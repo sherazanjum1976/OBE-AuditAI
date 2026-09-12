@@ -40,10 +40,17 @@ class ModelInfo:
 # lightweight models as of the last manual review of this file.
 # --------------------------------------------------------------------------- #
 GROQ_FALLBACK_MODELS = [
-    ModelInfo(id="llama-3.1-8b-instant", label="Llama 3.1 8B Instant (fast, free-tier)", recommended=True),
-    ModelInfo(id="llama-3.3-70b-versatile", label="Llama 3.3 70B Versatile (higher quality)"),
-    ModelInfo(id="gemma2-9b-it", label="Gemma2 9B IT"),
+    ModelInfo(id="openai/gpt-oss-120b", label="GPT-OSS 120B (higher quality, generous free-tier limits)", recommended=True),
+    ModelInfo(id="openai/gpt-oss-20b", label="GPT-OSS 20B (fast, generous free-tier limits)"),
 ]
+
+# Only these two models are offered for Groq. Other Groq-hosted models
+# (e.g. llama-3.3-70b-versatile, larger/preview models) have much tighter
+# free-tier token-per-minute quotas, and a full audit fires ~8 sequential
+# LLM calls, so picking one of those was the cause of repeated 429
+# "rate limit or quota exceeded" errors mid-audit. Restricting the choice
+# to these two curated models avoids that.
+ALLOWED_GROQ_MODEL_IDS = {m.id for m in GROQ_FALLBACK_MODELS}
 
 GEMINI_FALLBACK_MODELS = [
     ModelInfo(id="gemini-2.5-flash", label="Gemini 2.5 Flash (fast, free-tier)", recommended=True),
@@ -61,7 +68,21 @@ GEMINI_FALLBACK_MODELS = [
 # Model discovery
 # --------------------------------------------------------------------------- #
 def list_groq_models(api_key: str) -> List[ModelInfo]:
-    """Attempt to list available Groq models via their /models endpoint."""
+    """Return the curated Groq model list.
+
+    We deliberately do NOT expose Groq's full live model catalog here.
+    Many of those models (large 70B+ models, previews, etc.) have much
+    tighter free-tier rate/quota limits, and this app fires several
+    sequential LLM calls per audit run — so letting the user pick an
+    arbitrary model was causing frequent 429 "rate limit or quota
+    exceeded" failures mid-audit.
+
+    Instead we only ever offer the two curated, generous-free-tier
+    models in GROQ_FALLBACK_MODELS. If a live listing call succeeds and
+    confirms both are currently available on the account, we return
+    them (in the same recommended order); otherwise we still return the
+    curated list, since it's the safe default either way.
+    """
     try:
         resp = requests.get(
             "https://api.groq.com/openai/v1/models",
@@ -71,44 +92,12 @@ def list_groq_models(api_key: str) -> List[ModelInfo]:
         if resp.status_code != 200:
             return GROQ_FALLBACK_MODELS
         data = resp.json().get("data", [])
-        candidate_ids = [m["id"] for m in data if "id" in m]
-
-        # Groq's /models endpoint lists EVERY hosted model, including audio
-        # (TTS/STT) and moderation models that cannot handle a text chat
-        # request (e.g. "canopylabs/orpheus-arabic-saudi", "playai-tts",
-        # "whisper-large-v3"). Sending a chat request to one of those returns
-        # a 400 error, which is what caused this bug. To stay robust as Groq
-        # adds more non-chat models over time, we use an ALLOWLIST of known
-        # text/chat model family keywords rather than trying to blocklist
-        # every non-chat model by name.
-        allowed_family_keywords = [
-            "llama", "gemma", "mixtral", "qwen", "deepseek", "kimi",
-            "gpt-oss", "compound", "mistral", "moonshotai",
-        ]
-        # Backstop blocklist in case an allowed family keyword ever collides
-        # with a non-chat model name.
-        blocked_substrings = [
-            "whisper", "guard", "vision", "tts", "embedding", "orpheus",
-            "canopylabs", "playai", "audio", "speech", "transcribe",
-        ]
-
-        def is_chat_model(mid: str) -> bool:
-            low = mid.lower()
-            if any(b in low for b in blocked_substrings):
-                return False
-            return any(fam in low for fam in allowed_family_keywords)
-
-        filtered = [mid for mid in candidate_ids if is_chat_model(mid)]
-
-        if not filtered:
-            return GROQ_FALLBACK_MODELS
-        models = []
-        for mid in filtered:
-            recommended = "8b-instant" in mid or "llama-3.1-8b" in mid
-            models.append(ModelInfo(id=mid, label=mid, recommended=recommended))
-        if not any(m.recommended for m in models):
-            models[0].recommended = True
-        return sorted(models, key=lambda m: not m.recommended)
+        live_ids = {m["id"] for m in data if "id" in m}
+        # Only keep curated models that are actually confirmed live; if
+        # neither is confirmed (e.g. unexpected response shape), fall
+        # back to the curated list anyway rather than widening choice.
+        available = [m for m in GROQ_FALLBACK_MODELS if m.id in live_ids]
+        return available if available else GROQ_FALLBACK_MODELS
     except Exception:
         return GROQ_FALLBACK_MODELS
 
@@ -242,6 +231,12 @@ def generate(provider: str, api_key: str, model: str, system_prompt: str, user_p
     if not api_key:
         raise LLMError("Please enter an API key before running the audit.")
     if provider == "Groq":
+        if model not in ALLOWED_GROQ_MODEL_IDS:
+            raise LLMError(
+                f"'{model}' is not one of the supported Groq models "
+                f"({', '.join(sorted(ALLOWED_GROQ_MODEL_IDS))}). "
+                "Please re-select a model in the sidebar."
+            )
         return _call_groq(api_key, model, system_prompt, user_prompt, temperature, max_tokens)
     elif provider == "Gemini":
         return _call_gemini(api_key, model, system_prompt, user_prompt, temperature, max_tokens)
