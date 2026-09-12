@@ -175,7 +175,30 @@ def _call_groq(api_key: str, model: str, system_prompt: str, user_prompt: str,
                 temperature: float = 0.2, max_tokens: int = 2000,
                 max_retries: int = 4) -> str:
     last_wait = 0.0
+    # openai/gpt-oss-120b and openai/gpt-oss-20b are reasoning models. Groq
+    # docs confirm they don't support `reasoning_format` (so we can't ask
+    # them to hide their chain-of-thought), and by default their internal
+    # reasoning both (a) eats into the max_tokens budget, sometimes leaving
+    # too little room for the actual JSON answer, and (b) can leak into the
+    # `content` field alongside the answer. `reasoning_effort: low` is the
+    # supported lever to reduce both effects for a structured-output task
+    # like this one, where we don't need deep reasoning — just correct
+    # extraction/classification.
+    is_gpt_oss = model.startswith("openai/gpt-oss")
+
     for attempt in range(max_retries + 1):
+        payload = {
+            "model": model,
+            "messages": [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt},
+            ],
+            "temperature": temperature,
+            "max_tokens": max_tokens,
+        }
+        if is_gpt_oss:
+            payload["reasoning_effort"] = "low"
+
         try:
             resp = requests.post(
                 "https://api.groq.com/openai/v1/chat/completions",
@@ -183,15 +206,7 @@ def _call_groq(api_key: str, model: str, system_prompt: str, user_prompt: str,
                     "Authorization": f"Bearer {api_key}",
                     "Content-Type": "application/json",
                 },
-                json={
-                    "model": model,
-                    "messages": [
-                        {"role": "system", "content": system_prompt},
-                        {"role": "user", "content": user_prompt},
-                    ],
-                    "temperature": temperature,
-                    "max_tokens": max_tokens,
-                },
+                json=payload,
                 timeout=60,
             )
         except requests.exceptions.RequestException as e:

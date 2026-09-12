@@ -17,7 +17,7 @@ from __future__ import annotations
 
 import json
 import re
-from typing import Dict, List, Any, Tuple
+from typing import Dict, List, Any, Tuple, Optional
 
 from modules.vector_store import FaissVectorStore
 from modules.retrieval import gather_stage_evidence, format_evidence_for_prompt, Evidence
@@ -37,28 +37,92 @@ BASE_SYSTEM_PROMPT = (
 )
 
 
+def _extract_balanced_json(text: str) -> Optional[str]:
+    """Find the first complete, brace-balanced {...} object in text.
+
+    More robust than a greedy regex when a reasoning model has leaked
+    chain-of-thought text before/after the JSON (which happens
+    intermittently with Groq's gpt-oss models) — this walks the string
+    tracking nesting depth and string/escape state, so it isn't confused
+    by braces that happen to appear inside the leaked commentary, and it
+    correctly reports "no complete object" when the JSON was truncated
+    mid-object rather than silently grabbing a broken fragment.
+    """
+    start = text.find("{")
+    if start == -1:
+        return None
+    depth = 0
+    in_string = False
+    escape = False
+    for i in range(start, len(text)):
+        ch = text[i]
+        if in_string:
+            if escape:
+                escape = False
+            elif ch == "\\":
+                escape = True
+            elif ch == '"':
+                in_string = False
+            continue
+        if ch == '"':
+            in_string = True
+        elif ch == "{":
+            depth += 1
+        elif ch == "}":
+            depth -= 1
+            if depth == 0:
+                return text[start:i + 1]
+    return None  # unbalanced — likely truncated mid-object
+
+
 def _safe_json_parse(raw_text: str) -> Dict[str, Any]:
     """Robustly parse JSON out of an LLM response, tolerating stray code
-    fences or minor leading/trailing text."""
+    fences, leaked reasoning/chain-of-thought text before or after the
+    JSON object, or minor leading/trailing commentary."""
     text = raw_text.strip()
-    text = re.sub(r"^```(json)?", "", text.strip(), flags=re.IGNORECASE).strip()
+    text = re.sub(r"^```[a-zA-Z]*", "", text.strip()).strip()
     text = re.sub(r"```$", "", text.strip()).strip()
     try:
         return json.loads(text)
     except json.JSONDecodeError:
         pass
-    # Try to locate the first {...} block
-    match = re.search(r"\{.*\}", text, re.DOTALL)
-    if match:
+
+    candidate = _extract_balanced_json(text)
+    if candidate:
         try:
-            return json.loads(match.group(0))
+            return json.loads(candidate)
         except json.JSONDecodeError:
             pass
+
     raise LLMError(
         "The AI model returned a response that could not be parsed as JSON. "
         "This can happen occasionally with some models — please try running "
         "the audit again, or switch to a different model."
     )
+
+
+def _generate_json(provider: str, api_key: str, model: str, system_prompt: str,
+                    user_prompt: str, temperature: float, max_tokens: int) -> Dict[str, Any]:
+    """generate() + _safe_json_parse(), with one automatic retry on parse
+    failure. Reasoning models (e.g. Groq's gpt-oss-120b/20b) intermittently
+    leak chain-of-thought into the answer or run out of token budget before
+    finishing the JSON — a single retry with a sharper instruction resolves
+    most of those cases without surfacing an error to the user."""
+    raw = generate(provider, api_key, model, system_prompt, user_prompt,
+                    temperature=temperature, max_tokens=max_tokens)
+    try:
+        return _safe_json_parse(raw)
+    except LLMError:
+        retry_prompt = (
+            user_prompt
+            + "\n\nIMPORTANT: Your previous response could not be parsed as JSON. "
+              "Respond with ONLY a single valid JSON object matching the schema above — "
+              "no reasoning, no commentary, no markdown code fences, nothing before or "
+              "after the JSON."
+        )
+        raw_retry = generate(provider, api_key, model, system_prompt, retry_prompt,
+                              temperature=min(temperature, 0.1), max_tokens=max_tokens)
+        return _safe_json_parse(raw_retry)
 
 
 def _run_stage(provider: str, api_key: str, model: str, store: FaissVectorStore,
@@ -74,8 +138,8 @@ def _run_stage(provider: str, api_key: str, model: str, store: FaissVectorStore,
         "Respond with ONLY the JSON object."
     )
 
-    raw = generate(provider, api_key, model, BASE_SYSTEM_PROMPT, user_prompt, temperature=0.15, max_tokens=2500)
-    parsed = _safe_json_parse(raw)
+    parsed = _generate_json(provider, api_key, model, BASE_SYSTEM_PROMPT, user_prompt,
+                             temperature=0.15, max_tokens=4000)
     return parsed, evidence
 
 
@@ -249,8 +313,8 @@ def detect_gaps(provider, api_key, model, store,
         f"TASK:\n{instruction}\n\nRELEVANT OBE POLICY EVIDENCE:\n{evidence_block}\n\n"
         f"REQUIRED JSON SCHEMA:\n{schema}\n\nRespond with ONLY the JSON object."
     )
-    raw = generate(provider, api_key, model, BASE_SYSTEM_PROMPT, user_prompt, temperature=0.2, max_tokens=2000)
-    parsed = _safe_json_parse(raw)
+    parsed = _generate_json(provider, api_key, model, BASE_SYSTEM_PROMPT, user_prompt,
+                             temperature=0.2, max_tokens=3000)
     return parsed, evidence
 
 
@@ -286,8 +350,8 @@ def generate_recommendations(provider, api_key, model, store, gaps: Dict) -> Tup
         f"TASK:\n{instruction}\n\nSUPPORTING EVIDENCE:\n{evidence_block}\n\n"
         f"REQUIRED JSON SCHEMA:\n{schema}\n\nRespond with ONLY the JSON object."
     )
-    raw = generate(provider, api_key, model, BASE_SYSTEM_PROMPT, user_prompt, temperature=0.3, max_tokens=2500)
-    parsed = _safe_json_parse(raw)
+    parsed = _generate_json(provider, api_key, model, BASE_SYSTEM_PROMPT, user_prompt,
+                             temperature=0.3, max_tokens=4000)
     return parsed, evidence
 
 
@@ -311,6 +375,6 @@ def generate_executive_summary(provider, api_key, model, stage1: Dict, score_res
     try:
         return generate(provider, api_key, model,
                          "You are an OBE quality-assurance report writer. Respond with plain prose only.",
-                         user_prompt, temperature=0.4, max_tokens=400)
+                         user_prompt, temperature=0.4, max_tokens=800)
     except LLMError as e:
         return f"(Executive summary unavailable: {e})"
