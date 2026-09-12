@@ -31,6 +31,9 @@ st.set_page_config(
 
 CUSTOM_CSS = """
 <style>
+    /* ----------------------------------------------------------------- */
+    /* Base palette (kept in sync with .streamlit/config.toml)           */
+    /* ----------------------------------------------------------------- */
     .stApp {
         background: linear-gradient(180deg, #0b1220 0%, #101a30 100%);
         color: #e8ecf5;
@@ -39,9 +42,143 @@ CUSTOM_CSS = """
         background: #0c1526;
         border-right: 1px solid #1e2c4a;
     }
+    section[data-testid="stSidebar"] * {
+        color: #e8ecf5;
+    }
     h1, h2, h3, h4 {
         color: #f2f5fb !important;
     }
+    p, li, span, label, .stMarkdown {
+        color: #d7deed;
+    }
+    a, a:visited {
+        color: #6fd3ff !important;
+    }
+    hr, [data-testid="stDivider"] {
+        border-color: #223458 !important;
+    }
+
+    /* ----------------------------------------------------------------- */
+    /* Captions / secondary text — must never fall back to a color close */
+    /* to the dark background.                                          */
+    /* ----------------------------------------------------------------- */
+    [data-testid="stCaptionContainer"], .stCaption {
+        color: #a9b8d6 !important;
+    }
+
+    /* ----------------------------------------------------------------- */
+    /* Progress bars ("sliders") — sidebar upload progress AND main-pane */
+    /* build/audit progress were using Streamlit's default light-theme   */
+    /* track/fill, which was nearly invisible against the dark page.     */
+    /* ----------------------------------------------------------------- */
+    div[data-testid="stProgress"] > div {
+        background-color: #16233f !important;
+        border-radius: 999px;
+        height: 12px;
+    }
+    div[data-testid="stProgress"] > div > div {
+        background: linear-gradient(90deg, #2f6fed, #37e6c1) !important;
+        border-radius: 999px;
+    }
+
+    /* st.slider, if used anywhere (track + thumb + selected range) */
+    div[data-testid="stSlider"] div[data-baseweb="slider"] > div {
+        background: #1b2740 !important;
+    }
+    div[data-testid="stSlider"] div[data-baseweb="slider"] > div > div {
+        background: linear-gradient(90deg, #2f6fed, #37e6c1) !important;
+    }
+    div[data-testid="stSlider"] div[role="slider"] {
+        background-color: #ffffff !important;
+        border: 3px solid #37e6c1 !important;
+        box-shadow: 0 0 0 3px rgba(55,230,193,0.25) !important;
+    }
+
+    /* ----------------------------------------------------------------- */
+    /* Inputs, selects, and their (portal-rendered) popovers/dropdowns   */
+    /* ----------------------------------------------------------------- */
+    div[data-baseweb="select"] > div,
+    input, textarea {
+        background-color: #101c34 !important;
+        color: #f2f5fb !important;
+        border: 1px solid #2b3f6b !important;
+    }
+    div[data-baseweb="popover"], ul[data-baseweb="menu"], div[role="listbox"] {
+        background-color: #101c34 !important;
+        border: 1px solid #2b3f6b !important;
+    }
+    li[role="option"], div[role="option"] {
+        color: #f2f5fb !important;
+    }
+    li[role="option"]:hover, li[aria-selected="true"] {
+        background-color: #1b2c50 !important;
+    }
+    div[data-testid="stNumberInput"] button {
+        background-color: #16233f !important;
+        color: #f2f5fb !important;
+        border: 1px solid #2b3f6b !important;
+    }
+
+    /* ----------------------------------------------------------------- */
+    /* File uploader dropzone                                            */
+    /* ----------------------------------------------------------------- */
+    section[data-testid="stFileUploaderDropzone"] {
+        background: #101c34 !important;
+        border: 1.5px dashed #3a5590 !important;
+        border-radius: 12px;
+    }
+    section[data-testid="stFileUploaderDropzone"] * {
+        color: #dbe3f2 !important;
+    }
+    div[data-testid="stFileUploaderFile"] {
+        background: #131f38 !important;
+        color: #e8ecf5 !important;
+        border-radius: 8px;
+    }
+
+    /* ----------------------------------------------------------------- */
+    /* Alerts (info / success / warning / error) — force high-contrast   */
+    /* text regardless of Streamlit's default alert background.         */
+    /* ----------------------------------------------------------------- */
+    div[data-testid="stAlertContainer"] {
+        background: #131f38 !important;
+        border: 1px solid #2b3f6b !important;
+        border-radius: 10px;
+    }
+    div[data-testid="stAlertContainer"] * {
+        color: #f2f5fb !important;
+    }
+
+    /* ----------------------------------------------------------------- */
+    /* Metrics, tabs, expanders                                          */
+    /* ----------------------------------------------------------------- */
+    div[data-testid="stMetric"] {
+        background: #131f38;
+        border: 1px solid #24365e;
+        border-radius: 10px;
+        padding: 10px 14px;
+    }
+    div[data-testid="stMetricLabel"] * { color: #a9b8d6 !important; }
+    div[data-testid="stMetricValue"] * { color: #f2f5fb !important; }
+
+    button[data-baseweb="tab"] { color: #a9b8d6 !important; }
+    button[data-baseweb="tab"][aria-selected="true"] {
+        color: #59d0ff !important;
+        border-bottom-color: #59d0ff !important;
+    }
+
+    details, div[data-testid="stExpander"] {
+        background: #101c34 !important;
+        border: 1px solid #24365e !important;
+        border-radius: 10px;
+    }
+    details summary, div[data-testid="stExpander"] summary * {
+        color: #f2f5fb !important;
+    }
+
+    /* ----------------------------------------------------------------- */
+    /* Cards / hero / badges                                             */
+    /* ----------------------------------------------------------------- */
     .obe-card {
         background: linear-gradient(145deg, #131f38, #0f1a30);
         border: 1px solid #24365e;
@@ -49,6 +186,15 @@ CUSTOM_CSS = """
         padding: 18px 20px;
         margin-bottom: 14px;
         box-shadow: 0 4px 18px rgba(0,0,0,0.25);
+        color: #e8ecf5;
+    }
+    .obe-card, .obe-card * {
+        color: #e8ecf5;
+    }
+    .obe-card h4 { color: #f2f5fb !important; margin-top: 0; }
+    .obe-card b, .obe-card strong { color: #ffffff !important; }
+    .obe-upload-guide {
+        border-left: 4px solid #37e6c1;
     }
     .obe-score-hero {
         text-align: center;
@@ -73,10 +219,11 @@ CUSTOM_CSS = """
         font-weight: 600;
         margin-right: 6px;
     }
-    .badge-critical { background:#4a1620; color:#ff6b81; border:1px solid #6b2233;}
-    .badge-high { background:#4a2e14; color:#ffb14a; border:1px solid #6b4420;}
-    .badge-medium { background:#4a4414; color:#f5e04a; border:1px solid #6b6220;}
-    .badge-low { background:#123d2c; color:#5ee6a8; border:1px solid #1f5c41;}
+    .badge-critical { background:#4a1620; color:#ff9baa; border:1px solid #6b2233;}
+    .badge-high { background:#4a2e14; color:#ffc37a; border:1px solid #6b4420;}
+    .badge-medium { background:#4a4414; color:#f7ea86; border:1px solid #6b6220;}
+    .badge-low { background:#123d2c; color:#8bf0c0; border:1px solid #1f5c41;}
+
     .stButton>button {
         background: linear-gradient(90deg, #2f6fed, #7b5cff);
         color: white;
@@ -89,6 +236,18 @@ CUSTOM_CSS = """
         opacity: 0.9;
         color: white;
     }
+    .stButton>button:disabled {
+        background: #1b2740 !important;
+        color: #6b7ba0 !important;
+    }
+    .stDownloadButton>button {
+        background: #131f38;
+        color: #f2f5fb;
+        border: 1px solid #2b3f6b;
+        border-radius: 10px;
+        font-weight: 600;
+    }
+
     .workflow-step {
         text-align:center;
         padding: 10px 4px;
@@ -96,6 +255,15 @@ CUSTOM_CSS = """
         background: #101c34;
         border: 1px solid #223458;
         font-size: 13px;
+        color: #e8ecf5 !important;
+    }
+
+    /* Dataframes render in an iframe on most Streamlit versions and pick */
+    /* up the .streamlit/config.toml theme automatically; this just keeps */
+    /* the surrounding chrome consistent.                                */
+    div[data-testid="stDataFrame"] {
+        border: 1px solid #24365e;
+        border-radius: 8px;
     }
 </style>
 """
@@ -142,6 +310,26 @@ with st.expander("🔎 How the AI Workflow Works (click to expand)", expanded=Fa
     for c, s in zip(cols, steps):
         c.markdown(f"<div class='workflow-step'>{s}</div>", unsafe_allow_html=True)
 
+st.markdown(
+    """
+<div class='obe-card obe-upload-guide'>
+<h4>📂 What should you upload?</h4>
+<p><b>Accepted format:</b> PDF only. Upload the actual course/program documents you want audited — not summaries or screenshots.</p>
+<p><b>What kind of documents work best</b> (upload whichever of these you have; you don't need all of them, but more coverage = a more complete audit):</p>
+<ul>
+<li>🧾 <b>Course outline / syllabus</b> — course title, code, credit hours, objectives, CLOs</li>
+<li>🎯 <b>CLO–PLO document</b> — Course Learning Outcomes and Program Learning Outcomes, and any mapping between them</li>
+<li>📋 <b>Assessment plan / rubric</b> — assignments, quizzes, exams, projects and their weightings</li>
+<li>🎓 <b>OBE / accreditation guidelines</b> — the policy document your program is being audited against</li>
+<li>📝 <b>Exam or question papers</b> (optional) — helps validate Bloom's Taxonomy coverage</li>
+</ul>
+<p><b>Uploading more than one file?</b> Each PDF is read and chunked <b>one file at a time, in the order you upload them</b> — this is quick sequential text extraction, not a bottleneck. Once every file has been processed, all of their chunks are combined into <b>one unified knowledge base</b> (a single FAISS index). From that point on, every analysis stage searches <b>across all your uploaded documents together</b> — e.g. it can cross-reference a CLO from your course outline against your OBE guidelines and your assessment plan in the same step, rather than analyzing each document in isolation.</p>
+<p>👉 Upload your files and configure Step 1 in the sidebar on the left, then continue with Steps 2–4 below.</p>
+</div>
+""",
+    unsafe_allow_html=True,
+)
+
 st.divider()
 
 # --------------------------------------------------------------------------- #
@@ -180,6 +368,7 @@ with st.sidebar:
 
     st.divider()
     st.markdown("## 📥 Step 2 — Upload Knowledge")
+    st.caption("📖 See the main panel for what to upload and how multiple files are handled.")
     expected_docs = st.number_input("How many documents will you upload?", min_value=1, max_value=20,
                                      value=st.session_state["expected_docs"], step=1, key="expected_docs")
     uploaded_files = st.file_uploader(
