@@ -72,13 +72,34 @@ def list_groq_models(api_key: str) -> List[ModelInfo]:
             return GROQ_FALLBACK_MODELS
         data = resp.json().get("data", [])
         candidate_ids = [m["id"] for m in data if "id" in m]
-        # Prefer known lightweight instruct/chat models; filter out
-        # whisper/audio/guard/vision models not suited for this text task.
-        blocked_substrings = ["whisper", "guard", "vision", "tts", "embedding"]
-        filtered = [
-            mid for mid in candidate_ids
-            if not any(b in mid.lower() for b in blocked_substrings)
+
+        # Groq's /models endpoint lists EVERY hosted model, including audio
+        # (TTS/STT) and moderation models that cannot handle a text chat
+        # request (e.g. "canopylabs/orpheus-arabic-saudi", "playai-tts",
+        # "whisper-large-v3"). Sending a chat request to one of those returns
+        # a 400 error, which is what caused this bug. To stay robust as Groq
+        # adds more non-chat models over time, we use an ALLOWLIST of known
+        # text/chat model family keywords rather than trying to blocklist
+        # every non-chat model by name.
+        allowed_family_keywords = [
+            "llama", "gemma", "mixtral", "qwen", "deepseek", "kimi",
+            "gpt-oss", "compound", "mistral", "moonshotai",
         ]
+        # Backstop blocklist in case an allowed family keyword ever collides
+        # with a non-chat model name.
+        blocked_substrings = [
+            "whisper", "guard", "vision", "tts", "embedding", "orpheus",
+            "canopylabs", "playai", "audio", "speech", "transcribe",
+        ]
+
+        def is_chat_model(mid: str) -> bool:
+            low = mid.lower()
+            if any(b in low for b in blocked_substrings):
+                return False
+            return any(fam in low for fam in allowed_family_keywords)
+
+        filtered = [mid for mid in candidate_ids if is_chat_model(mid)]
+
         if not filtered:
             return GROQ_FALLBACK_MODELS
         models = []
