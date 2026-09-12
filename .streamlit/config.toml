@@ -1,0 +1,17 @@
+[theme]
+# This app previously had NO theme config, so Streamlit rendered its native
+# widgets (selectbox/dropdown popovers, sliders, progress bars, alert boxes,
+# the file-uploader dropzone) in its default LIGHT theme, while app.py's
+# custom CSS force-darkened only the outer page. That mismatch is what made
+# some text and the progress bars effectively invisible (light text on a
+# light widget background, or a light track with a barely-visible fill).
+# Setting a real theme here makes every native component — including ones
+# rendered outside .stApp via portals/popovers, which CSS alone can't
+# reliably reach — use the same high-contrast dark palette as the rest
+# of the app.
+base = "dark"
+primaryColor = "#37e6c1"
+backgroundColor = "#0b1220"
+secondaryBackgroundColor = "#131f38"
+textColor = "#f2f5fb"
+font = "sans serif"
