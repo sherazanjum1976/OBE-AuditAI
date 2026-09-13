@@ -252,7 +252,7 @@ of phrasing is needed.
             Point to the workflow diagram in the app: Documents → RAG → LLM → Score → Recs.
 
 1:30–3:30   Live application demonstration
-            - Select provider (Groq/Gemini), paste API key, pick recommended model
+            - Select provider (Groq/Gemini) and paste API key (model is pre-selected — one fixed, curated model per provider)
             - Upload 3–4 sample course/OBE PDFs
             - Click "Build OBE Knowledge Base" — narrate extraction/chunking/embedding/FAISS
             - Click "Run OBE Audit" — narrate the 5 stages running

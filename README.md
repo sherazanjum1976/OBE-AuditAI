@@ -46,7 +46,8 @@ Recommendation entries, all traceable back to a specific filename and page.
 - 📥 Multi-PDF upload with expected-vs-actual document count check
 - 🔎 Real Retrieval-Augmented Generation (not "stuff everything into one prompt")
 - 🤖 Provider choice: Groq or Gemini, with your own API key (never stored)
-- 🧭 Dynamic, live model discovery per provider (no hardcoded obsolete models)
+- 🧭 One curated, generous-free-tier text model per provider — `openai/gpt-oss-120b` on Groq,
+  `gemini-3.5-flash-lite` on Gemini (no model picker, no risk of selecting a non-chat model)
 - 🧩 5-stage OBE analysis workflow (Document Overview → CLO Audit → CLO–PLO Alignment →
   Assessment Alignment → Bloom's Taxonomy)
 - 📊 Transparent, rule-based 0–100 quality score across 7 weighted dimensions
@@ -146,7 +147,7 @@ OBE-AuditAI/
     ├── embeddings.py          # Sentence-Transformer wrapper
     ├── vector_store.py        # FAISS index wrapper
     ├── retrieval.py           # Semantic retrieval + evidence formatting
-    ├── llm_provider.py        # Groq/Gemini abstraction, model discovery
+    ├── llm_provider.py        # Groq/Gemini abstraction, fixed model config
     ├── obe_analyzer.py        # 5-stage OBE AI workflow + gaps + recommendations
     ├── scoring.py             # Transparent rule-based scoring engine
     └── report_generator.py    # MD / TXT / JSON / PDF report builders

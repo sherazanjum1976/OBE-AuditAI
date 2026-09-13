@@ -17,7 +17,7 @@ import pandas as pd
 import streamlit as st
 
 from modules import pdf_processor, embeddings, vector_store, obe_analyzer, scoring, report_generator
-from modules.llm_provider import list_models_for_provider, LLMError
+from modules.llm_provider import get_model_for_provider, LLMError
 
 # --------------------------------------------------------------------------- #
 # Page config & styling
@@ -348,23 +348,16 @@ with st.sidebar:
     )
     st.caption("🔐 Your API key is used only for this session and is not stored by OBE-AuditAI.")
 
-    if api_key:
-        with st.spinner("Fetching available models..."):
-            try:
-                models = list_models_for_provider(provider, api_key)
-            except Exception:
-                models = []
-        if models:
-            labels = [f"⭐ {m.label}" if m.recommended else m.label for m in models]
-            ids = [m.id for m in models]
-            default_idx = next((i for i, m in enumerate(models) if m.recommended), 0)
-            chosen_label = st.selectbox("Select Model", labels, index=default_idx)
-            st.session_state["selected_model"] = ids[labels.index(chosen_label)]
-            st.caption("⭐ = recommended lightweight, free-tier-suitable model")
-        else:
-            st.warning("Could not fetch model list. Please check your API key.")
-    else:
-        st.info("Enter an API key to see available models.")
+    # A single, fixed, curated text model is used per provider (no picker).
+    # This avoids two real issues seen with an open model dropdown: some
+    # provider-hosted "models" are non-chat (audio/TTS) models that reject
+    # text requests, and many chat models have free-tier quotas too tight
+    # for the ~8 sequential LLM calls a full audit makes.
+    fixed_model = get_model_for_provider(provider)
+    st.session_state["selected_model"] = fixed_model
+    st.caption(f"🤖 Model: **{fixed_model}**")
+    if not api_key:
+        st.info("Enter an API key above to run the audit.")
 
     st.divider()
     st.markdown("## 📥 Step 2 — Upload Knowledge")
